@@ -34,9 +34,10 @@ async def generate_visualization(request: VisualizeRequest) -> Response:
         gemini = GeminiService()
 
         image_bytes = await gemini.generate_visualization(
-            layout_description=request.layout_description,
-            style=request.style or "photorealistic aerial view",
             address=request.address,
+            style=request.style or "photorealistic aerial view",
+            view=request.view or "birds_eye",
+            layout_description=request.layout_description,
         )
 
         if image_bytes:

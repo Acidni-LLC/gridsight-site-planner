@@ -295,18 +295,30 @@ Position uses feet from the northwest corner of the lot. Rotation is clockwise f
 
     async def generate_visualization(
         self,
-        layout: SiteLayout,
         address: str,
         style: str = "modern_farmhouse",
         view: str = "birds_eye",
+        layout: SiteLayout | None = None,
+        layout_description: str | None = None,
     ) -> bytes | None:
-        """Generate a photorealistic visualization using Gemini Image Generation."""
-        structures_desc = "\n".join(
-            f"- {s.type.value}: {s.footprint_sqft}sqft at ({s.position.get('x', 0)}, "
-            f"{s.position.get('y', 0)}), {s.dimensions.get('width_ft', 0)}×"
-            f"{s.dimensions.get('depth_ft', 0)}ft"
-            for s in layout.structures
-        )
+        """Generate a photorealistic visualization using Gemini Image Generation.
+
+        Accepts either a full ``SiteLayout`` object or a free-text
+        ``layout_description``.  When both are provided the structured
+        layout takes precedence.
+        """
+        if layout and layout.structures:
+            structures_desc = "\n".join(
+                f"- {s.type.value}: {s.footprint_sqft}sqft at "
+                f"({s.position.get('x', 0)}, {s.position.get('y', 0)}), "
+                f"{s.dimensions.get('width_ft', 0)}×"
+                f"{s.dimensions.get('depth_ft', 0)}ft"
+                for s in layout.structures
+            )
+        elif layout_description:
+            structures_desc = layout_description
+        else:
+            structures_desc = "A residential property with typical Florida structures"
 
         viz_prompt = f"""Generate a photorealistic {view} view of this site layout:
 
