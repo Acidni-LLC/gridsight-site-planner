@@ -30,10 +30,10 @@ async def estimate_energy(request: EnergyEstimateRequest) -> EnergyEstimateResul
     """
     logger.info(
         "Estimating energy for %.0f sqft at (%.4f, %.4f) - %s efficiency",
-        request.cooled_sqft,
+        request.cooling_sqft or request.home_sqft,
         request.lat,
         request.lng,
-        request.efficiency.value,
+        request.efficiency_level.value,
     )
 
     try:
@@ -44,11 +44,12 @@ async def estimate_energy(request: EnergyEstimateRequest) -> EnergyEstimateResul
         solar = await solar_svc.get_solar_potential(request.lat, request.lng)
 
         # Calculate energy estimate
+        cooled_sqft = request.cooling_sqft or request.home_sqft
         result = energy_svc.estimate(
-            cooled_sqft=request.cooled_sqft,
+            cooled_sqft=cooled_sqft,
             lat=request.lat,
-            lng=lng if (lng := request.lng) else -81.5,
-            efficiency=request.efficiency,
+            lng=request.lng,
+            efficiency=request.efficiency_level,
             solar_potential=solar,
             include_solar=request.include_solar,
         )

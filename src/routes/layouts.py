@@ -7,7 +7,9 @@ import logging
 from fastapi import APIRouter, HTTPException
 
 from src.models import (
+    ContextData,
     LayoutGenerateRequest,
+    ParcelFeatures,
     SiteLayout,
     StructureTemplate,
     StructureType,
@@ -145,12 +147,21 @@ async def generate_layout(request: LayoutGenerateRequest) -> SiteLayout:
     try:
         gemini = GeminiService()
 
+        # Build parcel features from request dimensions
+        parcel_features = ParcelFeatures(
+            usable_area_sqft=request.parcel_sqft,
+            estimated_dimensions={
+                "width_ft": request.parcel_width_ft,
+                "depth_ft": request.parcel_depth_ft,
+            },
+        )
+        context_data = ContextData()
+
         layout = await gemini.generate_layout(
-            parcel_sqft=request.parcel_sqft,
-            parcel_width_ft=request.parcel_width_ft,
-            parcel_depth_ft=request.parcel_depth_ft,
-            structures=request.structures,
-            constraints=request.constraints,
+            parcel_features=parcel_features,
+            context_data=context_data,
+            desired_structures=request.structures,
+            home_sqft=int(request.parcel_sqft * 0.3),  # 30% lot coverage default
         )
 
         return layout
@@ -174,12 +185,20 @@ async def adjust_layout(layout_id: str, request: LayoutGenerateRequest) -> SiteL
     try:
         gemini = GeminiService()
 
+        parcel_features = ParcelFeatures(
+            usable_area_sqft=request.parcel_sqft,
+            estimated_dimensions={
+                "width_ft": request.parcel_width_ft,
+                "depth_ft": request.parcel_depth_ft,
+            },
+        )
+        context_data = ContextData()
+
         layout = await gemini.generate_layout(
-            parcel_sqft=request.parcel_sqft,
-            parcel_width_ft=request.parcel_width_ft,
-            parcel_depth_ft=request.parcel_depth_ft,
-            structures=request.structures,
-            constraints=request.constraints,
+            parcel_features=parcel_features,
+            context_data=context_data,
+            desired_structures=request.structures,
+            home_sqft=int(request.parcel_sqft * 0.3),
         )
 
         # Preserve the layout ID for history tracking

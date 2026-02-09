@@ -1,4 +1,4 @@
-"""Configuration module for GridSight SitePlanner."""
+﻿"""Configuration module for GridSight SitePlanner."""
 
 from __future__ import annotations
 
@@ -26,11 +26,23 @@ class Settings(BaseSettings):
     google_solar_api_key: str = ""
     google_maps_api_key: str = ""
 
+    @property
+    def gemini_api_key(self) -> str:
+        return self.google_gemini_api_key
+
+    @property
+    def solar_api_key(self) -> str:
+        return self.google_solar_api_key
+
+    @property
+    def maps_api_key(self) -> str:
+        return self.google_maps_api_key
+
     # Azure Cosmos DB
     cosmos_endpoint: str = "https://acidni-cosmos-dev.documents.azure.com:443/"
     cosmos_database: str = "gridsight-dev"
 
-    # Azure Key Vault (optional — loads secrets on startup)
+    # Azure Key Vault (optional â€” loads secrets on startup)
     azure_key_vault_url: str = ""
 
     # Application Insights
@@ -43,3 +55,4 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Get cached application settings."""
     return Settings()
+
