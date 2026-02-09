@@ -1,0 +1,96 @@
+name: Build & Deploy GridSight SitePlanner
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  ACR_NAME: crterprint
+  ACR_LOGIN: crterprint.azurecr.io
+  IMAGE_NAME: gridsight-site-planner
+  CONTAINER_APP: ca-gridsight-site-planner
+  RESOURCE_GROUP: rg-gridsight-dev
+  TAG_PREFIX: dev
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login to ACR
+        run: az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build and push image
+        run: |
+          IMAGE_TAG="${{ env.TAG_PREFIX }}-${{ github.run_number }}"
+          FULL_IMAGE="${{ env.ACR_LOGIN }}/${{ env.IMAGE_NAME }}"
+
+          docker build \
+            -t "${FULL_IMAGE}:${IMAGE_TAG}" \
+            -t "${FULL_IMAGE}:${{ env.TAG_PREFIX }}-latest" \
+            .
+
+          docker push "${FULL_IMAGE}:${IMAGE_TAG}"
+          docker push "${FULL_IMAGE}:${{ env.TAG_PREFIX }}-latest"
+
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
+          echo "FULL_IMAGE=${FULL_IMAGE}" >> $GITHUB_ENV
+
+      - name: Deploy to Container Apps
+        run: |
+          # Check if container app exists
+          EXISTS=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "name" -o tsv 2>/dev/null || echo "")
+
+          if [ -z "$EXISTS" ]; then
+            echo "Creating new Container App..."
+            az containerapp create \
+              --name ${{ env.CONTAINER_APP }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --environment "kindmoss-c6723cbe" \
+              --image "${{ env.FULL_IMAGE }}:${{ env.IMAGE_TAG }}" \
+              --target-port 7146 \
+              --ingress external \
+              --min-replicas 0 \
+              --max-replicas 3 \
+              --cpu 0.5 \
+              --memory 1.0Gi \
+              --registry-server ${{ env.ACR_LOGIN }} \
+              --registry-identity system
+          else
+            echo "Updating existing Container App..."
+            az containerapp update \
+              --name ${{ env.CONTAINER_APP }} \
+              --resource-group ${{ env.RESOURCE_GROUP }} \
+              --image "${{ env.FULL_IMAGE }}:${{ env.IMAGE_TAG }}"
+          fi
+
+      - name: Verify deployment
+        run: |
+          FQDN=$(az containerapp show \
+            --name ${{ env.CONTAINER_APP }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "properties.configuration.ingress.fqdn" -o tsv)
+
+          echo "App FQDN: ${FQDN}"
+          echo "Health URL: https://${FQDN}/health"
+
+          # Quick health check (allow startup time)
+          sleep 15
+          curl -sf "https://${FQDN}/health" || echo "⚠️ Health check pending - app may still be starting"
