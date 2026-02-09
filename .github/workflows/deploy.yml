@@ -75,6 +75,9 @@ jobs:
 
       - name: Deploy Container App
         run: |
+          APP_VERSION="v$(date -u +%Y%m%d)-${{ github.run_number }}"
+          echo "APP_VERSION=${APP_VERSION}"
+
           # Check if container app exists
           EXISTS=$(az containerapp show \
             --name ${{ env.CONTAINER_APP }} \
@@ -98,13 +101,15 @@ jobs:
               --memory 1.0Gi \
               --registry-server ${{ env.ACR_LOGIN_SERVER }} \
               --registry-username ${{ secrets.ORG_ACR_USERNAME }} \
-              --registry-password ${{ secrets.ORG_ACR_PASSWORD }}
+              --registry-password ${{ secrets.ORG_ACR_PASSWORD }} \
+              --env-vars "APP_VERSION=${APP_VERSION}" "ENVIRONMENT=${{ env.ENVIRONMENT }}"
           else
             echo "Updating existing Container App..."
             az containerapp update \
               --name ${{ env.CONTAINER_APP }} \
               --resource-group ${{ env.RESOURCE_GROUP }} \
-              --image "${IMAGE}"
+              --image "${IMAGE}" \
+              --set-env-vars "APP_VERSION=${APP_VERSION}"
           fi
 
       - name: Verify deployment
