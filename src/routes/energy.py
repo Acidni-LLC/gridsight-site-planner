@@ -40,18 +40,18 @@ async def estimate_energy(request: EnergyEstimateRequest) -> EnergyEstimateResul
         energy_svc = EnergyService()
         solar_svc = SolarService()
 
-        # Get solar potential for the location
-        solar = await solar_svc.get_solar_potential(request.lat, request.lng)
-
         # Calculate energy estimate
         cooled_sqft = request.cooling_sqft or request.home_sqft
+        solar = None
+        if request.include_solar:
+            solar = await solar_svc.get_solar_potential(request.lat, request.lng)
+
         result = energy_svc.estimate(
-            cooled_sqft=cooled_sqft,
+            home_sqft=request.home_sqft,
+            cooling_sqft=cooled_sqft,
             lat=request.lat,
-            lng=request.lng,
             efficiency=request.efficiency_level,
             solar_potential=solar,
-            include_solar=request.include_solar,
         )
 
         return result
