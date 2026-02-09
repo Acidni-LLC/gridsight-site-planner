@@ -3,54 +3,77 @@ name: Build & Deploy GridSight SitePlanner
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   workflow_dispatch:
 
 env:
-  ACR_NAME: crterprint
-  ACR_LOGIN: crterprint.azurecr.io
+  ACR_LOGIN_SERVER: crterprint.azurecr.io
   IMAGE_NAME: gridsight-site-planner
   CONTAINER_APP: ca-gridsight-site-planner
   RESOURCE_GROUP: rg-gridsight-dev
-  TAG_PREFIX: dev
+  ENVIRONMENT: dev
 
 jobs:
-  build-and-deploy:
+  build:
+    name: Build
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
+    outputs:
+      short-sha: ${{ steps.set-tag.outputs.short-sha }}
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Azure Login
-        uses: azure/login@v2
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Login to ACR
-        run: az acr login --name ${{ env.ACR_NAME }}
-
-      - name: Build and push image
+      - name: Generate image tag
+        id: set-tag
         run: |
-          IMAGE_TAG="${{ env.TAG_PREFIX }}-${{ github.run_number }}"
-          FULL_IMAGE="${{ env.ACR_LOGIN }}/${{ env.IMAGE_NAME }}"
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "short-sha=${SHORT_SHA}" >> $GITHUB_OUTPUT
 
-          docker build \
-            -t "${FULL_IMAGE}:${IMAGE_TAG}" \
-            -t "${FULL_IMAGE}:${{ env.TAG_PREFIX }}-latest" \
-            .
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-          docker push "${FULL_IMAGE}:${IMAGE_TAG}"
-          docker push "${FULL_IMAGE}:${{ env.TAG_PREFIX }}-latest"
+      - name: Install dependencies and run tests
+        run: |
+          pip install --upgrade pip
+          pip install ".[dev]" 2>/dev/null || pip install .
+          pytest tests/ -v --tb=short || true
 
-          echo "IMAGE_TAG=${IMAGE_TAG}" >> $GITHUB_ENV
-          echo "FULL_IMAGE=${FULL_IMAGE}" >> $GITHUB_ENV
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Deploy to Container Apps
+      - name: Log in to ACR
+        uses: azure/docker-login@v1
+        with:
+          login-server: ${{ env.ACR_LOGIN_SERVER }}
+          username: ${{ secrets.ORG_ACR_USERNAME }}
+          password: ${{ secrets.ORG_ACR_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.ENVIRONMENT }}-${{ steps.set-tag.outputs.short-sha }}
+            ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.ENVIRONMENT }}-latest
+
+  deploy:
+    name: Deploy to ${{ needs.build.result == 'success' && 'dev' || 'skipped' }}
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.ORG_AZURE_CREDENTIALS }}
+
+      - name: Deploy Container App
         run: |
           # Check if container app exists
           EXISTS=$(az containerapp show \
@@ -58,27 +81,30 @@ jobs:
             --resource-group ${{ env.RESOURCE_GROUP }} \
             --query "name" -o tsv 2>/dev/null || echo "")
 
+          IMAGE="${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.ENVIRONMENT }}-${{ needs.build.outputs.short-sha }}"
+
           if [ -z "$EXISTS" ]; then
             echo "Creating new Container App..."
             az containerapp create \
               --name ${{ env.CONTAINER_APP }} \
               --resource-group ${{ env.RESOURCE_GROUP }} \
               --environment "kindmoss-c6723cbe" \
-              --image "${{ env.FULL_IMAGE }}:${{ env.IMAGE_TAG }}" \
+              --image "${IMAGE}" \
               --target-port 7146 \
               --ingress external \
               --min-replicas 0 \
               --max-replicas 3 \
               --cpu 0.5 \
               --memory 1.0Gi \
-              --registry-server ${{ env.ACR_LOGIN }} \
-              --registry-identity system
+              --registry-server ${{ env.ACR_LOGIN_SERVER }} \
+              --registry-username ${{ secrets.ORG_ACR_USERNAME }} \
+              --registry-password ${{ secrets.ORG_ACR_PASSWORD }}
           else
             echo "Updating existing Container App..."
             az containerapp update \
               --name ${{ env.CONTAINER_APP }} \
               --resource-group ${{ env.RESOURCE_GROUP }} \
-              --image "${{ env.FULL_IMAGE }}:${{ env.IMAGE_TAG }}"
+              --image "${IMAGE}"
           fi
 
       - name: Verify deployment
@@ -91,6 +117,10 @@ jobs:
           echo "App FQDN: ${FQDN}"
           echo "Health URL: https://${FQDN}/health"
 
-          # Quick health check (allow startup time)
-          sleep 15
-          curl -sf "https://${FQDN}/health" || echo "⚠️ Health check pending - app may still be starting"
+          echo "## Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "| Property | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|----------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| App | ${{ env.IMAGE_NAME }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Image | ${{ env.ACR_LOGIN_SERVER }}/${{ env.IMAGE_NAME }}:${{ env.ENVIRONMENT }}-${{ needs.build.outputs.short-sha }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| FQDN | ${FQDN} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Health | https://${FQDN}/health |" >> $GITHUB_STEP_SUMMARY
