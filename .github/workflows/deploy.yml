@@ -88,7 +88,7 @@ jobs:
             az containerapp create \
               --name ${{ env.CONTAINER_APP }} \
               --resource-group ${{ env.RESOURCE_GROUP }} \
-              --environment "kindmoss-c6723cbe" \
+              --environment "cae-gridsight-dev" \
               --image "${IMAGE}" \
               --target-port 7146 \
               --ingress external \
