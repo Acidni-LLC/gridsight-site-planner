@@ -12,7 +12,7 @@ env:
   ACR_LOGIN_SERVER: crterprint.azurecr.io
   IMAGE_NAME: gridsight-site-planner
   CONTAINER_APP: ca-gridsight-site-planner
-  RESOURCE_GROUP: rg-gridsight-dev
+  RESOURCE_GROUP: rg-dev-acidni-shared
   ENVIRONMENT: dev
 
 jobs:
