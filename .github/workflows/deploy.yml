@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 env:
-  ACR_LOGIN_SERVER: crterprint.azurecr.io
+  ACR_LOGIN_SERVER: cracidnidev.azurecr.io
   IMAGE_NAME: gridsight-site-planner
   CONTAINER_APP: ca-gridsight-site-planner
   RESOURCE_GROUP: rg-dev-acidni-shared
